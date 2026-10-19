@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PDFWerkstatt" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#202422</item>
+        <item name="android:navigationBarColor">#202422</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#161918</item>
+    </style>
+</resources>
