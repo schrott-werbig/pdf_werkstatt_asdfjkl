@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # fest auf 24.04 (ubuntu-latest wechselt ab Okt. 2026 auf 26)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -19,11 +20,20 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.11.1'
+      - name: Android-SDK und Gradle bereitstellen
+        run: |
+          set -e
+          # Android-SDK ist auf dem GitHub-Runner vorinstalliert
+          export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools" | tee sdk.txt
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null || true
+          # Gradle direkt von gradle.org
+          wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
+          unzip -q gradle-8.11.1-bin.zip -d "$HOME"
+          echo "$HOME/gradle-8.11.1/bin" >> "$GITHUB_PATH"
 
       - name: Web-App in die Android-App kopieren
         run: |
@@ -45,7 +55,9 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: 1.${{ github.run_number }}
-        run: gradle --no-daemon assembleRelease
+        run: |
+          set -o pipefail
+          gradle --no-daemon --stacktrace assembleRelease 2>&1 | tee ../build.log
 
       - name: Prüfen, dass die App keine Internet-Berechtigung hat
         run: |
@@ -57,3 +69,16 @@ jobs:
         with:
           name: pdf-werkstatt-apk
           path: android/app/build/outputs/apk/release/app-release.apk
+
+      # Bei Fehlern: letzte Protokollzeilen als öffentliche Meldung auf der Lauf-Seite anzeigen
+      - name: Fehlerbericht
+        if: failure()
+        run: |
+          {
+            echo "SDK:"; cat sdk.txt 2>/dev/null || true
+            echo "--- Build-Protokoll (Ende) ---"
+            grep -E "FAILURE|What went wrong|error:|e: |> |Could not|BUILD" build.log 2>/dev/null | head -40 || true
+            tail -25 build.log 2>/dev/null || echo "(kein Build-Protokoll – Fehler vor dem Build)"
+          } > report.txt
+          MSG=$(sed -e 's/%/%25/g' report.txt | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Fehlerbericht::${MSG}"
