@@ -1,5 +1,5 @@
 // PDF Werkstatt – Service Worker: Offline-Cache + Teilen-Ziel (Android)
-const C='pdfwerkstatt-v61', SHARE='pdfwerkstatt-share';
+const C='pdfwerkstatt-v62', SHARE='pdfwerkstatt-share';
 const CORE=['./pdf-werkstatt.html','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>{ self.skipWaiting(); e.waitUntil(caches.open(C).then(c=>Promise.all(CORE.map(u=>c.add(u).catch(()=>{}))))); });
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C&&x!==SHARE).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));

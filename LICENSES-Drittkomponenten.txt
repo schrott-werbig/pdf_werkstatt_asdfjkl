@@ -6,6 +6,7 @@ Eingebettete Drittkomponenten (nur lokal genutzt, keine Netzverbindung):
 - Tesseract-Sprachdaten deu/eng/fra/ita (tessdata best_int) – Apache License 2.0
 - PaddleOCR PP-OCRv6 tiny (Detektion, Erkennung, Zeichenliste) als ONNX, aus dem Paket onnxocr 4.0.0 – Apache License 2.0 (PaddlePaddle Authors)
 - ONNX Runtime Web 1.23.2 (onnxruntime-web) – MIT License, Copyright (c) Microsoft Corporation
+- jsQR 1.4.0 (QR-Code-Decoder für QR-Rechnungen) – Apache License 2.0, Copyright (c) Cosmo Wolfe
 
 ===== Liberation Fonts =====
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
