@@ -13,7 +13,10 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.view.DragAndDropPermissions
+import android.view.DragEvent
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
@@ -52,6 +55,30 @@ class MainActivity : ComponentActivity() {
     private var pendingSave: ByteArray? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var cameraUri: Uri? = null
+    private val dropPerms = mutableListOf<DragAndDropPermissions>()
+
+    /** Stapel-Speichern: Dateien werden zuerst in den App-Cache gelegt, dann in einen gewählten Ordner geschrieben */
+    private val stageDir by lazy { File(cacheDir, "stage") }
+    private val stageNames = mutableListOf<Pair<String, String>>()   // Dateiname, MIME
+    private val openTree = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val tree = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || tree == null) { clearStage(); notifySaved(false, "kein Ordner gewählt"); return@registerForActivityResult }
+        Thread {
+            var n = 0
+            try {
+                val dir = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+                stageNames.forEachIndexed { i, (name, mime) ->
+                    val f = File(stageDir, i.toString())
+                    val uri = DocumentsContract.createDocument(contentResolver, dir, mime, name)
+                    if (uri != null && f.exists() && writeBytes(uri, f.readBytes())) n++
+                }
+            } catch (e: Exception) { }
+            val total = stageNames.size
+            clearStage()
+            runOnUiThread { notifySaved(n == total && n > 0, if (n == total) "$n Dateien im Ordner gespeichert" else "$n von $total gespeichert") }
+        }.start()
+    }
+    private fun clearStage() { stageNames.clear(); stageDir.listFiles()?.forEach { it.delete() } }
 
     private val createDocument = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val bytes = pendingSave
@@ -173,6 +200,18 @@ class MainActivity : ComponentActivity() {
 
         web.addJavascriptInterface(Bridge(), "PWAndroid")
 
+        // Samsung DeX / Mehrfenster: Dateien (PDF, Bilder) aus dem Dateimanager ins Fenster ziehen
+        web.setOnDragListener { _, e ->
+            when (e.action) {
+                DragEvent.ACTION_DRAG_STARTED -> {
+                    val d = e.clipDescription
+                    d != null && (0 until d.mimeTypeCount).any { i -> val m = d.getMimeType(i); m == "application/pdf" || m.startsWith("image/") }
+                }
+                DragEvent.ACTION_DROP -> { handleDrop(e); true }
+                else -> true
+            }
+        }
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (web.canGoBack()) web.goBack() else finish()
@@ -230,6 +269,26 @@ class MainActivity : ComponentActivity() {
         // Intent nur einmal verarbeiten (z. B. nach Drehen des Geräts)
         intent.action = Intent.ACTION_MAIN
         flushPendingOpen()
+    }
+
+    private fun handleDrop(e: DragEvent) {
+        try { requestDragAndDropPermissions(e)?.let { dropPerms.add(it) } } catch (_: Exception) { }
+        val clip = e.clipData ?: return
+        synchronized(pendingOpen) {
+            for (i in 0 until clip.itemCount) {
+                val u = clip.getItemAt(i).uri ?: continue
+                val id = UUID.randomUUID().toString()
+                incoming[id] = u
+                pendingOpen.add(JSONObject().put("id", id).put("name", displayName(u)).put("drop", true))
+            }
+        }
+        flushPendingOpen()
+    }
+
+    override fun onDestroy() {
+        dropPerms.forEach { try { it.release() } catch (_: Exception) { } }
+        dropPerms.clear()
+        super.onDestroy()
     }
 
     private fun flushPendingOpen() {
@@ -303,6 +362,26 @@ class MainActivity : ComponentActivity() {
                     putExtra(Intent.EXTRA_TITLE, name)
                 }
                 try { createDocument.launch(i) } catch (e: Exception) { notifySaved(false, e.message) }
+            }
+        }
+
+        @JavascriptInterface
+        fun stageBegin() { synchronized(stageNames) { clearStage(); stageDir.mkdirs() } }
+
+        @JavascriptInterface
+        fun stageFile(name: String, mime: String, base64: String) {
+            synchronized(stageNames) {
+                stageDir.mkdirs()
+                val safe = name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                FileOutputStream(File(stageDir, stageNames.size.toString())).use { it.write(Base64.decode(base64, Base64.DEFAULT)) }
+                stageNames.add(safe to mime)
+            }
+        }
+
+        @JavascriptInterface
+        fun stageSaveToFolder() {
+            runOnUiThread {
+                try { openTree.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)) } catch (e: Exception) { clearStage(); notifySaved(false, e.message) }
             }
         }
 
